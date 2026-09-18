@@ -771,3 +771,47 @@ fn compound_emoji_font_fallback() {
             .collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn fallback_continues_after_emoji_cluster() {
+    // This mirrors the project-font case where an emoji sequence, whose
+    // variation selector and ZWJ alter glyph counts, precedes text that needs a
+    // later fallback font. The second fallback must still be attempted.
+    let svg = "
+    <svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg' font-size='20'>
+        <text x='10' y='100'>Hi\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}\u{0915}there</text>
+    </svg>
+    ";
+
+    let fonts_dir = env!("CARGO_MANIFEST_DIR").to_string() + "/../resvg/tests/fonts";
+    let mut opts = usvg::Options::default();
+    opts.fontdb_mut()
+        .load_font_file(format!("{fonts_dir}/NotoSans-Regular.ttf"))
+        .unwrap();
+    opts.fontdb_mut()
+        .load_font_file(format!("{fonts_dir}/TwitterColorEmoji.subset.ttf"))
+        .unwrap();
+    opts.fontdb_mut()
+        .load_font_file(format!("{fonts_dir}/NotoSansDevanagari-Regular.ttf"))
+        .unwrap();
+    opts.font_family = "Noto Sans".to_string();
+
+    let tree = usvg::Tree::from_str(svg, &opts).unwrap();
+    let usvg::Node::Text(text) = &tree.root().children()[0] else {
+        unreachable!()
+    };
+    let glyphs: Vec<_> = text
+        .layouted()
+        .iter()
+        .flat_map(|span| span.positioned_glyphs.iter())
+        .collect();
+
+    assert!(
+        glyphs.iter().all(|glyph| glyph.id.0 != 0),
+        "text contains unresolved (.notdef) glyphs: {:?}",
+        glyphs
+            .iter()
+            .map(|glyph| (glyph.id.0, glyph.text.clone()))
+            .collect::<Vec<_>>()
+    );
+}
